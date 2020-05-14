@@ -10,7 +10,6 @@ objects:
 - kind: ServiceAccount
   apiVersion: v1
   metadata:
-    creationTimestamp: null
     labels:
       app: ${APPLICATION_NAME}
     name: ${APPLICATION_NAME}
@@ -125,6 +124,10 @@ objects:
       port: 3000
       protocol: TCP
       targetPort: 3000
+    - name: 10022-tcp
+      port: 10022
+      protocol: TCP
+      targetPort: 10022
     selector:
       app: ${APPLICATION_NAME}
       deploymentconfig: ${APPLICATION_NAME}
@@ -141,11 +144,28 @@ objects:
     name: ${APPLICATION_NAME}
   spec:
     host: ${HOSTNAME}
+    port:
+      targetPort: 3000-tcp
     to:
       name: ${APPLICATION_NAME}
     tls:
       insecureEdgeTerminationPolicy: Redirect
       termination: edge
+- kind: Route
+  apiVersion: v1
+  id: ${APPLICATION_NAME}-ssh
+  metadata:
+    annotations:
+      description: Route for application's ssh service.
+    labels:
+      app: ${APPLICATION_NAME}
+    name: ${APPLICATION_NAME}-ssh
+  spec:
+    host: secure${HOSTNAME}
+    port:
+      targetPort: 10022-tcp
+    to:
+      name: ${APPLICATION_NAME}
 - kind: DeploymentConfig
   apiVersion: v1
   metadata:
@@ -189,6 +209,8 @@ objects:
           name: ${APPLICATION_NAME}
           ports:
           - containerPort: 3000
+            protocol: TCP
+          - containerPort: 10022
             protocol: TCP
           resources: {}
           terminationMessagePath: /dev/termination-log
@@ -310,7 +332,9 @@ objects:
 
       [server]
       ROOT_URL=https://${HOSTNAME}
-      SSH_DOMAIN=${HOSTNAME}
+      SSH_DOMAIN=secure${HOSTNAME}
+      START_SSH_SERVER=true
+      SSH_LISTEN_PORT=10022
 
       [security]
       INSTALL_LOCK = ${INSTALL_LOCK}
@@ -326,7 +350,7 @@ objects:
       REQUIRE_SIGNIN_VIEW    = false
 
       [picture]
-      DISABLE_GRAVATAR        = false
+      DISABLE_GRAVATAR        = true
       ENABLE_FEDERATED_AVATAR = true
 
       [webhook]
