@@ -66,7 +66,9 @@ objects:
             value: ${DATABASE_ADMIN_PASSWORD}
           image: ' '
           livenessProbe:
+            failureThreshold: 10
             initialDelaySeconds: 30
+            periodSeconds: 20
             tcpSocket:
               port: 5432
             timeoutSeconds: 1
@@ -80,11 +82,16 @@ objects:
               - -i
               - -c
               - psql -h 127.0.0.1 -U ${POSTGRESQL_USER} -q -d ${POSTGRESQL_DATABASE} -c 'SELECT 1'
-            initialDelaySeconds: 5
+            failureThreshold: 10
+            initialDelaySeconds: 30
             timeoutSeconds: 1
           resources:
             limits:
-              memory: 512Mi
+              cpu: ${POSTGRES_CONTAINER_CPU_LIMIT}
+              memory: ${POSTGRES_CONTAINER_MEMORY_LIMIT}
+            requests:
+              cpu: ${POSTGRES_CONTAINER_CPU_REQUEST}
+              memory: ${POSTGRES_CONTAINER_MEMORY_REQUEST}
           volumeMounts:
           - mountPath: /var/lib/pgsql/data
             name: gogs-postgres-data
@@ -99,7 +106,7 @@ objects:
         - postgresql
         from:
           kind: ImageStreamTag
-          name: postgresql:9.5
+          name: postgresql:${DATABASE_VERSION}
           namespace: openshift
       type: ImageChange
     - type: ConfigChange
@@ -123,8 +130,6 @@ objects:
       deploymentconfig: ${APPLICATION_NAME}
     sessionAffinity: None
     type: ClusterIP
-  status:
-    loadBalancer: {}
 - kind: Route
   apiVersion: v1
   id: ${APPLICATION_NAME}-http
@@ -138,6 +143,9 @@ objects:
     host: ${HOSTNAME}
     to:
       name: ${APPLICATION_NAME}
+    tls:
+      insecureEdgeTerminationPolicy: Redirect
+      termination: edge
 - kind: DeploymentConfig
   apiVersion: v1
   metadata:
@@ -157,10 +165,9 @@ objects:
         maxUnavailable: 25%
         timeoutSeconds: 600
         updatePeriodSeconds: 1
-      type: Rolling
+      type: Recreate
     template:
       metadata:
-        creationTimestamp: null
         labels:
           app: ${APPLICATION_NAME}
           deploymentconfig: ${APPLICATION_NAME}
@@ -169,6 +176,16 @@ objects:
         containers:
         - image: " "
           imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 40
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 10
           name: ${APPLICATION_NAME}
           ports:
           - containerPort: 3000
@@ -181,25 +198,22 @@ objects:
           - name: gogs-config
             mountPath: /opt/gogs/custom/conf
           readinessProbe:
-              httpGet:
-                path: /
-                port: 3000
-                scheme: HTTP
-              initialDelaySeconds: 3
-              timeoutSeconds: 1
-              periodSeconds: 20
-              successThreshold: 1
-              failureThreshold: 3
-          livenessProbe:
-              httpGet:
-                path: /
-                port: 3000
-                scheme: HTTP
-              initialDelaySeconds: 3
-              timeoutSeconds: 1
-              periodSeconds: 10
-              successThreshold: 1
-              failureThreshold: 3
+            httpGet:
+              path: /
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 40
+            timeoutSeconds: 1
+            periodSeconds: 20
+            successThreshold: 1
+            failureThreshold: 10
+          resources:
+            limits:
+              cpu: "${GOGS_CPU_LIMIT}"
+              memory: "${GOGS_MEMORY_LIMIT}"
+            requests:
+              cpu: "${GOGS_CPU_REQUEST}"
+              memory: "${GOGS_MEMORY_REQUEST}"
         dnsPolicy: ClusterFirst
         restartPolicy: Always
         securityContext: {}
@@ -210,7 +224,7 @@ objects:
             claimName: gogs-data
         - name: gogs-config
           configMap:
-            name: gogs-config
+            name: gogs-config-${APPLICATION_NAME}
             items:
               - key: app.ini
                 path: app.ini
@@ -276,7 +290,7 @@ objects:
   metadata:
     labels:
       app: ${APPLICATION_NAME}
-    name: gogs-config
+    name: gogs-config-${APPLICATION_NAME}
   data:
     app.ini: |
       APP_NAME = Gogs
@@ -295,7 +309,8 @@ objects:
       ROOT = /data/repositories
 
       [server]
-      ROOT_URL=http://${HOSTNAME}
+      ROOT_URL=https://${HOSTNAME}
+      SSH_DOMAIN=${HOSTNAME}
 
       [security]
       INSTALL_LOCK = ${INSTALL_LOCK}
@@ -327,11 +342,11 @@ parameters:
 - description: Volume space available for data, e.g. 512Mi, 2Gi
   name: GOGS_VOLUME_CAPACITY
   required: true
-  value: 1Gi
+  value: 2Gi
 - description: Volume space available for postregs data, e.g. 512Mi, 2Gi
   name: DB_VOLUME_CAPACITY
   required: true
-  value: 1Gi
+  value: 2Gi
 - displayName: Database Username
   from: gogs
   value: gogs
@@ -353,14 +368,50 @@ parameters:
 - displayName: Shared Buffer Amount
   name: DATABASE_SHARED_BUFFERS
   value: 12MB
+- name: GOGS_CPU_LIMIT
+  description: Maximum amount of CPU a Gogs container can use
+  displayName: Gogs CPU Limit
+  required: true
+  value: 300m
+- name: GOGS_CPU_REQUEST
+  description: Reserved amount of CPU a Gogs container can use
+  displayName: Gogs CPU Request
+  required: true
+  value: 100m
+- name: GOGS_MEMORY_LIMIT
+  description: Maximum amount of memory a Gogs container can use
+  displayName: Gogs Memory Limit
+  required: true
+  value: 512Mi
+- name: GOGS_MEMORY_REQUEST
+  description: Reserved amount of memory a Gogs container can use
+  displayName: Gogs Memory Request
+  required: true
+  value: 512Mi
 - name: INSTALL_LOCK
   displayName: Installation lock
   description: 'If set to true, installation (/install) page will be disabled. Set to false if you want to run the installation wizard via web'
   value: "true"
+- description: Postgres Container Memory size limit
+  displayName: Postgres Container Memory size limit
+  name: POSTGRES_CONTAINER_MEMORY_LIMIT
+  value: 768Mi
+- description: Postgres Container Memory size request
+  displayName: Postgres Container Memory size request
+  name: POSTGRES_CONTAINER_MEMORY_REQUEST
+  value: 128Mi
+- description: Postgres Container CPU limit
+  displayName: Postgres Container CPU limit
+  name: POSTGRES_CONTAINER_CPU_LIMIT
+  value: 200m
+- description: Postgres Container CPU request
+  displayName: Postgres Container CPU request
+  name: POSTGRES_CONTAINER_CPU_REQUEST
+  value: 50m
 - name: SKIP_TLS_VERIFY
   displayName: Skip TLS verification on webhooks
   description: Skip TLS verification on webhooks. Enable with caution!
-  value: "true"
+  value: "false"
 - name: GOGS_IMAGE
   displayName: Gogs Image
   description: The name and tag for the Gogs Image to use
@@ -371,3 +422,6 @@ parameters:
   description: The tag for the Gogs Image to use
   value: "latest"
   required: true
+- displayName: Database version (PostgreSQL)
+  name: DATABASE_VERSION
+  value: "latest"
