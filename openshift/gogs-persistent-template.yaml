@@ -17,6 +17,8 @@ objects:
 - kind: Service
   apiVersion: v1
   metadata:
+    labels:
+      app: ${APPLICATION_NAME}
     annotations:
       description: Exposes the database server
     name: ${APPLICATION_NAME}-postgresql
@@ -30,6 +32,8 @@ objects:
 - kind: DeploymentConfig
   apiVersion: v1
   metadata:
+    labels:
+      app: ${APPLICATION_NAME}
     annotations:
       description: Defines how to deploy the database
     name: ${APPLICATION_NAME}-postgresql
@@ -270,6 +274,8 @@ objects:
 - kind: ConfigMap
   apiVersion: v1
   metadata:
+    labels:
+      app: ${APPLICATION_NAME}
     name: gogs-config
   data:
     app.ini: |
@@ -298,7 +304,7 @@ objects:
       ENABLED = false
 
       [service]
-      ENABLE_CAPTCHA = false
+      ENABLE_CAPTCHA         = false
       REGISTER_EMAIL_CONFIRM = false
       ENABLE_NOTIFY_MAIL     = false
       DISABLE_REGISTRATION   = false
@@ -314,7 +320,7 @@ parameters:
 - description: The name for the application.
   name: APPLICATION_NAME
   required: true
-  value: gogs
+  value: gogs-persistent
 - description: 'Custom hostname for http service route.  Leave blank for default hostname, e.g.: <application-name>-<project>.<default-domain-suffix>'
   name: HOSTNAME
   required: true
